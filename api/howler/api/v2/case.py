@@ -217,6 +217,9 @@ def append_item(id: str, user: User, **kwargs):  # noqa: C901
     observable is added, a bidirectional relationship is created - the case will
     reference the item, and the item will reference the case in its related.cases list.
 
+    If path is not provided then system will auto place items in folders based on their
+    respective types.  /hit, /observable for example.
+
     Variables:
     id       => The id of the case to modify
 
@@ -227,6 +230,7 @@ def append_item(id: str, user: User, **kwargs):  # noqa: C901
     {
         "type": "hit",            # Type of item to append: "hit", "observable", "case", "table", "lead", or "reference"
         "value": "item-id-123"    # The ID or reference value for the item
+        "path": "test_path/item_name etc"  # Optional path to specify where in the case hierarchy this item belongs (e.g., "timeline/event1")
     }
 
     Result Example:
