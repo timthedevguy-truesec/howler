@@ -267,7 +267,7 @@ def append_case_item(  # noqa: C901
         InvalidDataException: If item is not provided and item_type or item_value
             are missing, or if item_type is not a valid CaseItemTypes value.
     """
-    _case, _version = Case.objects.get_if_exists(key=case_id, as_obj=True, version=True)
+    _case, _version = Case.store.get_if_exists(key=case_id, as_obj=True, version=True)
 
     if _case is None:
         raise NotFoundException(f"Case {case_id} does not exist")
@@ -322,7 +322,7 @@ def append_hit(_case: Case, item: CaseItem):
     if any(item.value == case_item["value"] for case_item in _case.items):
         raise InvalidDataException(f"Hit {item.value} already exists in case {_case.case_id}")
 
-    hit: Hit = Hit.objects.get_if_exists(key=item.value, as_obj=True)
+    hit: Hit = Hit.store.get_if_exists(key=item.value, as_obj=True)
 
     if hit is None:
         raise NotFoundException(f"Hit {item.value} not found, cannot be added to case")
@@ -359,7 +359,7 @@ def append_observable(_case: Case, item: CaseItem):
     if any(item.value == case_item["value"] for case_item in _case.items):
         raise InvalidDataException(f"Observable {item.value} already exists in case {_case.case_id}")
 
-    observable: Observable = Observable.objects.get_if_exists(key=item.value, as_obj=True)
+    observable: Observable = Observable.store.get_if_exists(key=item.value, as_obj=True)
 
     if observable is None:
         raise NotFoundException(f"Observable {item.value} not found, cannot be added to case")
@@ -396,7 +396,7 @@ def append_case(_case: Case, item: CaseItem):
     if any(item.value == case_item["value"] for case_item in _case.items):
         raise InvalidDataException(f"Observable {item.value} already exists in case {_case.case_id}")
 
-    referenced_case: Case = Case.objects.get_if_exists(key=item.value, as_obj=True)
+    referenced_case: Case = Case.store.get_if_exists(key=item.value, as_obj=True)
 
     if referenced_case is None:
         raise NotFoundException(f"Referenced case {item.value} not found, cannot be added to case")

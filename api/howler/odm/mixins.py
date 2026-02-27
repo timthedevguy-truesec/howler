@@ -1,7 +1,7 @@
 """Datastore convenience mixins for Howler ODM Model classes.
 
 Provides :class:`DatastoreMixin`, a generic mixin that adds a class-level
-``objects`` property (returning a typed :class:`ESCollection`) and instance-level
+``store`` property (returning a typed :class:`ESCollection`) and instance-level
 ``ds`` / ``save`` helpers so that Model subclasses can interact with the
 Elasticsearch datastore without boilerplate.
 """
@@ -21,7 +21,7 @@ ModelType = TypeVar("ModelType", bound=Model)
 class _ObjectsDescriptor(Generic[ModelType]):
     """Descriptor that provides class-level-only access to the model's ESCollection.
 
-    Intended to be accessed exclusively via the class (e.g. ``Case.objects``).
+    Intended to be accessed exclusively via the class (e.g. ``Case.store``).
     Raises ``AttributeError`` if accessed from an instance to enforce
     class-only usage.
     """
@@ -49,11 +49,11 @@ class _ObjectsDescriptor(Generic[ModelType]):
         """
         if obj is not None:
             raise AttributeError(
-                f"'{type(obj).__name__}.objects' is a class-level property and cannot be accessed from an instance. "
-                f"Use '{type(obj).__name__}.objects' instead."
+                f"'{type(obj).__name__}.store' is a class-level property and cannot be accessed from an instance. "
+                f"Use '{type(obj).__name__}.store' instead."
             )
         if objtype is None:
-            raise AttributeError("Cannot resolve owner class for 'objects' descriptor.")
+            raise AttributeError("Cannot resolve owner class for 'store' descriptor.")
         index_name = objtype.__name__.lower()
         return datastore()[index_name]
 
@@ -61,16 +61,16 @@ class _ObjectsDescriptor(Generic[ModelType]):
 class DatastoreMixin(Generic[ModelType]):
     """Mixin that provides convenience datastore access to Model instances.
 
-    Generic over ``ModelType`` so that the ``objects`` class property returns a
+    Generic over ``ModelType`` so that the ``store`` class property returns a
     correctly-typed ``ESCollection[ModelType]``.  Adds a ``ds`` property for
-    retrieving the shared datastore connection, an ``objects`` class-only property
+    retrieving the shared datastore connection, a ``store`` class-only property
     for retrieving the model's ESCollection (raises ``AttributeError`` if accessed
     from an instance), and a ``save`` method that persists the current model
     instance using its class name as the index and its configured ID field as the
     document key.
     """
 
-    objects = _ObjectsDescriptor()
+    store = _ObjectsDescriptor()
 
     @property
     def ds(self):
