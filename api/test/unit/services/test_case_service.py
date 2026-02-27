@@ -450,3 +450,722 @@ class TestDeleteCases:
         result = case_service.delete_cases({"case-del"})
 
         assert result is True
+
+
+# ---------------------------------------------------------------------------
+# append_case_item()
+# ---------------------------------------------------------------------------
+
+
+class TestAppendCaseItem:
+    """Tests for case_service.append_case_item."""
+
+    def _make_case(self, case_id="case-001"):
+        return Case({"case_id": case_id, "title": "T", "summary": "S", "overview": "O", "escalation": "low"})
+
+    @patch("howler.services.case_service.append_hit")
+    @patch("howler.services.case_service.Case")
+    def test_dispatches_to_append_hit(self, mock_case_cls, mock_append_hit):
+        """append_case_item dispatches to append_hit for item_type='hit'."""
+        _case = self._make_case()
+        mock_case_cls.store.get_if_exists.return_value = (_case, "1")
+
+        case_service.append_case_item("case-001", item_type="hit", item_value="hit-001")
+
+        mock_append_hit.assert_called_once()
+        item_arg = mock_append_hit.call_args[0][1]
+        assert item_arg.value == "hit-001"
+        assert item_arg.type == "hit"
+
+    @patch("howler.services.case_service.append_observable")
+    @patch("howler.services.case_service.Case")
+    def test_dispatches_to_append_observable(self, mock_case_cls, mock_append_observable):
+        """append_case_item dispatches to append_observable for item_type='observable'."""
+        _case = self._make_case()
+        mock_case_cls.store.get_if_exists.return_value = (_case, "1")
+
+        case_service.append_case_item("case-001", item_type="observable", item_value="obs-001")
+
+        mock_append_observable.assert_called_once()
+
+    @patch("howler.services.case_service.append_case")
+    @patch("howler.services.case_service.Case")
+    def test_dispatches_to_append_case(self, mock_case_cls, mock_append_case):
+        """append_case_item dispatches to append_case for item_type='case'."""
+        _case = self._make_case()
+        mock_case_cls.store.get_if_exists.return_value = (_case, "1")
+
+        case_service.append_case_item("case-001", item_type="case", item_value="case-002")
+
+        mock_append_case.assert_called_once()
+
+    @patch("howler.services.case_service.Case")
+    def test_raises_not_found_when_case_missing(self, mock_case_cls):
+        """append_case_item raises NotFoundException when the case does not exist."""
+        mock_case_cls.store.get_if_exists.return_value = (None, None)
+
+        with pytest.raises(NotFoundException):
+            case_service.append_case_item("case-missing", item_type="hit", item_value="hit-001")
+
+    @patch("howler.services.case_service.Case")
+    def test_raises_invalid_when_type_and_value_missing(self, mock_case_cls):
+        """append_case_item raises InvalidDataException when both item_type and item_value are absent."""
+        _case = self._make_case()
+        mock_case_cls.store.get_if_exists.return_value = (_case, "1")
+
+        with pytest.raises(InvalidDataException):
+            case_service.append_case_item("case-001")
+
+    @patch("howler.services.case_service.Case")
+    def test_raises_invalid_for_unknown_item_type(self, mock_case_cls):
+        """append_case_item raises InvalidDataException for an unrecognised item_type."""
+        _case = self._make_case()
+        mock_case_cls.store.get_if_exists.return_value = (_case, "1")
+
+        with pytest.raises(InvalidDataException):
+            case_service.append_case_item("case-001", item_type="bogus", item_value="val-001")
+
+    @patch("howler.services.case_service.event_service")
+    @patch("howler.services.case_service.append_hit")
+    @patch("howler.services.case_service.Case")
+    def test_emits_cases_event_after_dispatch(self, mock_case_cls, mock_append_hit, mock_event_service):
+        """append_case_item emits a 'cases' event after the handler succeeds."""
+        _case = self._make_case()
+        mock_case_cls.store.get_if_exists.return_value = (_case, "version-1")
+
+        case_service.append_case_item("case-001", item_type="hit", item_value="hit-001")
+
+        mock_event_service.emit.assert_called_once_with(
+            "cases", {"case": _case.as_primitives(), "version": "version-1"}
+        )
+
+    @patch("howler.services.case_service.append_hit")
+    @patch("howler.services.case_service.Case")
+    def test_accepts_pre_built_case_item(self, mock_case_cls, mock_append_hit):
+        """append_case_item accepts a pre-built CaseItem and skips construction."""
+        from howler.odm.models.case import CaseItem
+
+        _case = self._make_case()
+        mock_case_cls.store.get_if_exists.return_value = (_case, "1")
+
+        pre_built = CaseItem({"type": "hit", "value": "hit-001", "path": "custom/"})
+        case_service.append_case_item("case-001", item=pre_built)
+
+        mock_append_hit.assert_called_once_with(_case, pre_built)
+
+    @patch("howler.services.case_service.Case")
+    def test_uses_default_path_when_item_path_is_empty(self, mock_case_cls):
+        """append_case_item falls back to 'ungrouped-related/' when item_path is falsy."""
+        from howler.odm.models.case import CaseItem
+
+        _case = self._make_case()
+        mock_case_cls.store.get_if_exists.return_value = (_case, "1")
+
+        original_ci = CaseItem
+
+        with patch("howler.services.case_service.CaseItem", side_effect=lambda d: original_ci(d)) as mock_ci:
+            with patch("howler.services.case_service.append_hit"):
+                case_service.append_case_item("case-001", item_type="hit", item_value="hit-001", item_path="")
+                call_kwargs = mock_ci.call_args[0][0]
+                assert call_kwargs["path"] == "ungrouped-related/"
+
+
+# ---------------------------------------------------------------------------
+# append_hit()
+# ---------------------------------------------------------------------------
+
+
+class TestAppendHit:
+    """Tests for case_service.append_hit."""
+
+    def _make_case(self):
+        return Case({"case_id": "case-001", "title": "T", "summary": "S", "overview": "O", "escalation": "low"})
+
+    def _make_item(self, value="hit-001", path="ungrouped-related/"):
+        from howler.odm.models.case import CaseItem
+
+        return CaseItem({"type": "hit", "value": value, "path": path})
+
+    @patch("howler.services.case_service.event_service")
+    @patch("howler.services.case_service.add_backreference")
+    @patch("howler.services.case_service.Hit")
+    def test_appends_hit_and_adds_backreference(self, mock_hit_cls, mock_backref, mock_event_service):
+        """append_hit appends the item to the case, saves it, and creates a back-reference."""
+        _case = self._make_case()
+        _case.save = MagicMock(return_value=True)
+
+        hit = MagicMock()
+        hit.howler.analytic = "test-analytic"
+        hit.howler.id = "hit-001"
+        mock_hit_cls.store.get_if_exists.return_value = (hit, "v1")
+
+        item = self._make_item()
+        case_service.append_hit(_case, item)
+
+        assert item in _case.items
+        _case.save.assert_called_once()
+        mock_backref.assert_called_once_with(hit, "case-001")
+
+    @patch("howler.services.case_service.Hit")
+    def test_raises_invalid_when_duplicate(self, mock_hit_cls):
+        """append_hit raises InvalidDataException when the hit is already in the case."""
+        from howler.odm.models.case import CaseItem
+
+        _case = self._make_case()
+        existing = CaseItem({"type": "hit", "value": "hit-001", "path": "alerts/"})
+        _case.items.append(existing)
+
+        item = self._make_item(value="hit-001")
+        with pytest.raises(InvalidDataException):
+            case_service.append_hit(_case, item)
+
+    @patch("howler.services.case_service.Hit")
+    def test_raises_not_found_when_hit_missing(self, mock_hit_cls):
+        """append_hit raises NotFoundException when the hit does not exist."""
+        _case = self._make_case()
+        mock_hit_cls.store.get_if_exists.return_value = (None, None)
+
+        item = self._make_item()
+        with pytest.raises(NotFoundException):
+            case_service.append_hit(_case, item)
+
+    @patch("howler.services.case_service.Hit")
+    def test_raises_invalid_for_wrong_item_type(self, mock_hit_cls):
+        """append_hit raises InvalidDataException when item.type is not 'hit'."""
+        from howler.odm.models.case import CaseItem
+
+        _case = self._make_case()
+        wrong_item = CaseItem({"type": "observable", "value": "obs-001", "path": "ungrouped-related/"})
+
+        with pytest.raises(InvalidDataException):
+            case_service.append_hit(_case, wrong_item)
+
+    @patch("howler.services.case_service.add_backreference")
+    @patch("howler.services.case_service.Hit")
+    def test_raises_datastore_exception_when_save_fails(self, mock_hit_cls, mock_backref):
+        """append_hit raises DataStoreException when case.save() returns False."""
+        from howler.datastore.exceptions import DataStoreException
+
+        _case = self._make_case()
+        _case.save = MagicMock(return_value=False)
+
+        hit = MagicMock()
+        hit.howler.analytic = "analytic"
+        hit.howler.id = "hit-001"
+        mock_hit_cls.store.get_if_exists.return_value = (hit, "v1")
+
+        item = self._make_item()
+        with pytest.raises(DataStoreException):
+            case_service.append_hit(_case, item)
+
+    @patch("howler.services.case_service.event_service")
+    @patch("howler.services.case_service.add_backreference")
+    @patch("howler.services.case_service.Hit")
+    def test_sets_path_from_analytic_when_ungrouped(self, mock_hit_cls, mock_backref, mock_event_service):
+        """append_hit auto-sets item path from the hit's analytic when path is 'ungrouped-related/'."""
+        _case = self._make_case()
+        _case.save = MagicMock(return_value=True)
+
+        hit = MagicMock()
+        hit.howler.analytic = "my-analytic"
+        hit.howler.id = "hit-001"
+        mock_hit_cls.store.get_if_exists.return_value = (hit, "v1")
+
+        item = self._make_item(path="ungrouped-related/")
+        case_service.append_hit(_case, item)
+
+        assert item.path == "alerts/my-analytic (hit-001)"
+
+    @patch("howler.services.case_service.event_service")
+    @patch("howler.services.case_service.add_backreference")
+    @patch("howler.services.case_service.Hit")
+    def test_preserves_custom_path(self, mock_hit_cls, mock_backref, mock_event_service):
+        """append_hit does not override item path when a custom path is provided."""
+        _case = self._make_case()
+        _case.save = MagicMock(return_value=True)
+
+        hit = MagicMock()
+        hit.howler.analytic = "my-analytic"
+        hit.howler.id = "hit-001"
+        mock_hit_cls.store.get_if_exists.return_value = (hit, "v1")
+
+        item = self._make_item(path="custom/path/")
+        case_service.append_hit(_case, item)
+
+        assert item.path == "custom/path/"
+
+    @patch("howler.services.case_service.event_service")
+    @patch("howler.services.case_service.add_backreference")
+    @patch("howler.services.case_service.Hit")
+    def test_emits_hits_event(self, mock_hit_cls, mock_backref, mock_event_service):
+        """append_hit emits a 'hits' event after successfully appending."""
+        _case = self._make_case()
+        _case.save = MagicMock(return_value=True)
+
+        hit = MagicMock()
+        hit.howler.analytic = "analytic"
+        hit.howler.id = "hit-001"
+        mock_hit_cls.store.get_if_exists.return_value = (hit, "v1")
+
+        item = self._make_item()
+        case_service.append_hit(_case, item)
+
+        mock_event_service.emit.assert_called_once_with("hits", {"hit": hit.as_primitives(), "version": "v1"})
+
+
+# ---------------------------------------------------------------------------
+# append_observable()
+# ---------------------------------------------------------------------------
+
+
+class TestAppendObservable:
+    """Tests for case_service.append_observable."""
+
+    def _make_case(self):
+        return Case({"case_id": "case-001", "title": "T", "summary": "S", "overview": "O", "escalation": "low"})
+
+    def _make_item(self, value="obs-001", path="ungrouped-related/"):
+        from howler.odm.models.case import CaseItem
+
+        return CaseItem({"type": "observable", "value": value, "path": path})
+
+    @patch("howler.services.case_service.event_service")
+    @patch("howler.services.case_service.add_backreference")
+    @patch("howler.services.case_service.Observable")
+    def test_appends_observable_and_adds_backreference(self, mock_obs_cls, mock_backref, mock_event_service):
+        """append_observable appends the item, saves the case, and creates a back-reference."""
+        _case = self._make_case()
+        _case.save = MagicMock(return_value=True)
+
+        observable = MagicMock()
+        observable.howler.id = "obs-001"
+        mock_obs_cls.store.get_if_exists.return_value = (observable, "v1")
+
+        item = self._make_item()
+        case_service.append_observable(_case, item)
+
+        assert item in _case.items
+        _case.save.assert_called_once()
+        mock_backref.assert_called_once_with(observable, "case-001")
+
+    @patch("howler.services.case_service.Observable")
+    def test_raises_invalid_when_duplicate(self, mock_obs_cls):
+        """append_observable raises InvalidDataException when the observable is already in the case."""
+        from howler.odm.models.case import CaseItem
+
+        _case = self._make_case()
+        existing = CaseItem({"type": "observable", "value": "obs-001", "path": "observables/"})
+        _case.items.append(existing)
+
+        item = self._make_item(value="obs-001")
+        with pytest.raises(InvalidDataException):
+            case_service.append_observable(_case, item)
+
+    @patch("howler.services.case_service.Observable")
+    def test_raises_not_found_when_observable_missing(self, mock_obs_cls):
+        """append_observable raises NotFoundException when the observable does not exist."""
+        _case = self._make_case()
+        mock_obs_cls.store.get_if_exists.return_value = (None, None)
+
+        item = self._make_item()
+        with pytest.raises(NotFoundException):
+            case_service.append_observable(_case, item)
+
+    @patch("howler.services.case_service.Observable")
+    def test_raises_invalid_for_wrong_item_type(self, mock_obs_cls):
+        """append_observable raises InvalidDataException when item.type is not 'observable'."""
+        from howler.odm.models.case import CaseItem
+
+        _case = self._make_case()
+        wrong_item = CaseItem({"type": "hit", "value": "hit-001", "path": "ungrouped-related/"})
+
+        with pytest.raises(InvalidDataException):
+            case_service.append_observable(_case, wrong_item)
+
+    @patch("howler.services.case_service.add_backreference")
+    @patch("howler.services.case_service.Observable")
+    def test_raises_datastore_exception_when_save_fails(self, mock_obs_cls, mock_backref):
+        """append_observable raises DataStoreException when case.save() returns False."""
+        from howler.datastore.exceptions import DataStoreException
+
+        _case = self._make_case()
+        _case.save = MagicMock(return_value=False)
+
+        observable = MagicMock()
+        observable.howler.id = "obs-001"
+        mock_obs_cls.store.get_if_exists.return_value = (observable, "v1")
+
+        item = self._make_item()
+        with pytest.raises(DataStoreException):
+            case_service.append_observable(_case, item)
+
+    @patch("howler.services.case_service.event_service")
+    @patch("howler.services.case_service.add_backreference")
+    @patch("howler.services.case_service.Observable")
+    def test_sets_path_from_observable_id_when_ungrouped(self, mock_obs_cls, mock_backref, mock_event_service):
+        """append_observable auto-sets item path from observable ID when path is 'ungrouped-related/'."""
+        _case = self._make_case()
+        _case.save = MagicMock(return_value=True)
+
+        observable = MagicMock()
+        observable.howler.id = "obs-001"
+        mock_obs_cls.store.get_if_exists.return_value = (observable, "v1")
+
+        item = self._make_item(path="ungrouped-related/")
+        case_service.append_observable(_case, item)
+
+        assert item.path == "observables/obs-001"
+
+
+# ---------------------------------------------------------------------------
+# append_case()
+# ---------------------------------------------------------------------------
+
+
+class TestAppendCaseRef:
+    """Tests for case_service.append_case."""
+
+    def _make_case(self, case_id="case-001"):
+        return Case({"case_id": case_id, "title": "T", "summary": "S", "overview": "O", "escalation": "low"})
+
+    def _make_item(self, value="case-002", path="ungrouped-related/"):
+        from howler.odm.models.case import CaseItem
+
+        return CaseItem({"type": "case", "value": value, "path": path})
+
+    @patch("howler.services.case_service.Case")
+    def test_appends_referenced_case(self, mock_case_cls):
+        """append_case appends the referenced case item and saves the parent case."""
+        parent = self._make_case("case-001")
+        parent.save = MagicMock(return_value=True)
+
+        referenced = self._make_case("case-002")
+        mock_case_cls.store.get_if_exists.return_value = referenced
+
+        item = self._make_item(value="case-002")
+        case_service.append_case(parent, item)
+
+        assert item in parent.items
+        parent.save.assert_called_once()
+
+    @patch("howler.services.case_service.Case")
+    def test_raises_invalid_when_duplicate(self, mock_case_cls):
+        """append_case raises InvalidDataException when the referenced case is already in the parent."""
+        from howler.odm.models.case import CaseItem
+
+        parent = self._make_case("case-001")
+        existing = CaseItem({"type": "case", "value": "case-002", "path": "cases/"})
+        parent.items.append(existing)
+
+        item = self._make_item(value="case-002")
+        with pytest.raises(InvalidDataException):
+            case_service.append_case(parent, item)
+
+    @patch("howler.services.case_service.Case")
+    def test_raises_not_found_when_referenced_case_missing(self, mock_case_cls):
+        """append_case raises NotFoundException when the referenced case does not exist."""
+        parent = self._make_case("case-001")
+        mock_case_cls.store.get_if_exists.return_value = None
+
+        item = self._make_item(value="case-999")
+        with pytest.raises(NotFoundException):
+            case_service.append_case(parent, item)
+
+    @patch("howler.services.case_service.Case")
+    def test_raises_invalid_for_wrong_item_type(self, mock_case_cls):
+        """append_case raises InvalidDataException when item.type is not 'case'."""
+        from howler.odm.models.case import CaseItem
+
+        parent = self._make_case("case-001")
+        wrong_item = CaseItem({"type": "hit", "value": "hit-001", "path": "ungrouped-related/"})
+
+        with pytest.raises(InvalidDataException):
+            case_service.append_case(parent, wrong_item)
+
+    @patch("howler.services.case_service.Case")
+    def test_sets_path_from_referenced_case_id_when_ungrouped(self, mock_case_cls):
+        """append_case builds item path from referenced case ID when path is 'ungrouped-related/'."""
+        parent = self._make_case("case-001")
+        parent.save = MagicMock(return_value=True)
+
+        referenced = self._make_case("case-002")
+        mock_case_cls.store.get_if_exists.return_value = referenced
+
+        item = self._make_item(value="case-002", path="ungrouped-related/")
+        case_service.append_case(parent, item)
+
+        assert item.path == "cases/case-002"
+
+    @patch("howler.services.case_service.Case")
+    def test_raises_datastore_exception_when_save_fails(self, mock_case_cls):
+        """append_case raises DataStoreException when case.save() returns False."""
+        from howler.datastore.exceptions import DataStoreException
+
+        parent = self._make_case("case-001")
+        parent.save = MagicMock(return_value=False)
+
+        referenced = self._make_case("case-002")
+        mock_case_cls.store.get_if_exists.return_value = referenced
+
+        item = self._make_item(value="case-002")
+        with pytest.raises(DataStoreException):
+            case_service.append_case(parent, item)
+
+
+# ---------------------------------------------------------------------------
+# append_table / append_lead / append_reference()
+# ---------------------------------------------------------------------------
+
+
+class TestAppendUnimplemented:
+    """Tests for the not-yet-implemented append handlers."""
+
+    def _make_case(self):
+        return Case({"case_id": "case-001", "title": "T", "summary": "S", "overview": "O", "escalation": "low"})
+
+    def _make_item(self, item_type: str):
+        from howler.odm.models.case import CaseItem
+
+        return CaseItem({"type": item_type, "value": "val-001", "path": "ungrouped-related/"})
+
+    def test_append_table_raises_not_implemented(self):
+        """append_table always raises NotImplementedError."""
+        with pytest.raises(NotImplementedError):
+            case_service.append_table(self._make_case(), self._make_item("table"))
+
+    def test_append_lead_raises_not_implemented(self):
+        """append_lead always raises NotImplementedError."""
+        with pytest.raises(NotImplementedError):
+            case_service.append_lead(self._make_case(), self._make_item("lead"))
+
+    def test_append_reference_raises_not_implemented(self):
+        """append_reference always raises NotImplementedError."""
+        with pytest.raises(NotImplementedError):
+            case_service.append_reference(self._make_case(), self._make_item("reference"))
+
+    def test_append_table_raises_invalid_for_wrong_type(self):
+        """append_table raises InvalidDataException for a non-table item type."""
+        with pytest.raises(InvalidDataException):
+            case_service.append_table(self._make_case(), self._make_item("hit"))
+
+    def test_append_lead_raises_invalid_for_wrong_type(self):
+        """append_lead raises InvalidDataException for a non-lead item type."""
+        with pytest.raises(InvalidDataException):
+            case_service.append_lead(self._make_case(), self._make_item("hit"))
+
+    def test_append_reference_raises_invalid_for_wrong_type(self):
+        """append_reference raises InvalidDataException for a non-reference item type."""
+        with pytest.raises(InvalidDataException):
+            case_service.append_reference(self._make_case(), self._make_item("hit"))
+
+
+# ---------------------------------------------------------------------------
+# add_backreference()
+# ---------------------------------------------------------------------------
+
+
+class TestAddBackreference:
+    """Tests for case_service.add_backreference."""
+
+    @patch("howler.services.case_service.datastore")
+    def test_adds_case_id_to_related(self, mock_ds_fn):
+        """add_backreference appends the case_id to backing_obj.howler.related and saves."""
+        mock_ds = MagicMock()
+        mock_ds_fn.return_value = mock_ds
+
+        backing = MagicMock()
+        backing.__class__.__name__ = "hit"
+        backing.howler.related = []
+        backing.howler.id = "hit-001"
+
+        case_service.add_backreference(backing, "case-001")
+
+        assert "case-001" in backing.howler.related
+        mock_ds["hit"].save.assert_called_once_with("hit-001", backing)
+
+    @patch("howler.services.case_service.datastore")
+    def test_is_noop_when_backreference_already_exists(self, mock_ds_fn):
+        """add_backreference does not save when the case_id is already in related."""
+        mock_ds = MagicMock()
+        mock_ds_fn.return_value = mock_ds
+
+        backing = MagicMock()
+        backing.__class__.__name__ = "hit"
+        backing.howler.related = ["case-001"]
+        backing.howler.id = "hit-001"
+
+        case_service.add_backreference(backing, "case-001")
+
+        mock_ds["hit"].save.assert_not_called()
+
+    def test_raises_invalid_when_backing_obj_is_none(self):
+        """add_backreference raises InvalidDataException when backing_obj is None."""
+        with pytest.raises(InvalidDataException):
+            case_service.add_backreference(None, "case-001")
+
+    def test_raises_invalid_when_case_id_is_empty(self):
+        """add_backreference raises InvalidDataException when case_id is empty."""
+        backing = MagicMock()
+        backing.howler.related = []
+
+        with pytest.raises(InvalidDataException):
+            case_service.add_backreference(backing, "")
+
+    @patch("howler.services.case_service.datastore")
+    def test_uses_lowercase_class_name_as_index(self, mock_ds_fn):
+        """add_backreference derives the datastore index from the backing object's class name."""
+        mock_ds = MagicMock()
+        mock_ds_fn.return_value = mock_ds
+
+        backing = MagicMock()
+        backing.__class__.__name__ = "Observable"
+        backing.howler.related = []
+        backing.howler.id = "obs-001"
+
+        case_service.add_backreference(backing, "case-001")
+
+        mock_ds["Observable"].save.assert_called_once_with("obs-001", backing)
+
+
+# ---------------------------------------------------------------------------
+# remove_backreference()
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveBackreference:
+    """Tests for case_service.remove_backreference."""
+
+    @patch("howler.services.case_service.datastore")
+    def test_removes_case_id_from_related(self, mock_ds_fn):
+        """remove_backreference removes the case_id from howler.related and saves."""
+        mock_ds = MagicMock()
+        mock_ds_fn.return_value = mock_ds
+
+        backing = MagicMock()
+        backing.__class__.__name__ = "hit"
+        backing.howler.related = ["case-001", "case-002"]
+        backing.howler.id = "hit-001"
+
+        case_service.remove_backreference(backing, "case-001")
+
+        assert "case-001" not in backing.howler.related
+        mock_ds["hit"].save.assert_called_once_with("hit-001", backing)
+
+    @patch("howler.services.case_service.datastore")
+    def test_is_noop_when_case_id_not_in_related(self, mock_ds_fn):
+        """remove_backreference does not save when the case_id is not in related."""
+        mock_ds = MagicMock()
+        mock_ds_fn.return_value = mock_ds
+
+        backing = MagicMock()
+        backing.__class__.__name__ = "hit"
+        backing.howler.related = ["case-999"]
+        backing.howler.id = "hit-001"
+
+        case_service.remove_backreference(backing, "case-001")
+
+        mock_ds["hit"].save.assert_not_called()
+
+    def test_raises_invalid_when_backing_obj_is_none(self):
+        """remove_backreference raises InvalidDataException when backing_obj is None."""
+        with pytest.raises(InvalidDataException):
+            case_service.remove_backreference(None, "case-001")
+
+    def test_raises_invalid_when_case_id_is_empty(self):
+        """remove_backreference raises InvalidDataException when case_id is empty."""
+        backing = MagicMock()
+        backing.howler.related = []
+
+        with pytest.raises(InvalidDataException):
+            case_service.remove_backreference(backing, "")
+
+
+# ---------------------------------------------------------------------------
+# remove_case_item()
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveCaseItem:
+    """Tests for case_service.remove_case_item."""
+
+    def _make_case_with_item(self, item_type="hit", item_value="hit-001"):
+        from howler.odm.models.case import CaseItem
+
+        _case = Case({"case_id": "case-001", "title": "T", "summary": "S", "overview": "O", "escalation": "low"})
+        _case.save = MagicMock(return_value=True)
+
+        case_item = CaseItem({"type": item_type, "value": item_value, "path": "alerts/"})
+        case_item["id"] = item_value
+        _case.items.append(case_item)
+        return _case, case_item
+
+    @patch("howler.services.case_service.remove_backreference")
+    @patch("howler.services.case_service.datastore")
+    @patch("howler.services.case_service.Case")
+    def test_removes_item_and_cleans_backreference(self, mock_case_cls, mock_ds_fn, mock_remove_backref):
+        """remove_case_item removes the item from the case and calls remove_backreference."""
+        mock_ds = MagicMock()
+        mock_ds_fn.return_value = mock_ds
+
+        _case, case_item = self._make_case_with_item()
+        mock_case_cls.store.get_if_exists.return_value = _case
+
+        backing = MagicMock()
+        mock_ds.__getitem__.return_value.get_if_exists.return_value = backing
+
+        case_service.remove_case_item("case-001", item_value="hit-001")
+
+        assert case_item not in _case.items
+        _case.save.assert_called_once()
+        mock_remove_backref.assert_called_once_with(backing, "case-001")
+
+    @patch("howler.services.case_service.Case")
+    def test_raises_not_found_when_case_missing(self, mock_case_cls):
+        """remove_case_item raises NotFoundException when the case does not exist."""
+        mock_case_cls.store.get_if_exists.return_value = None
+
+        with pytest.raises(NotFoundException):
+            case_service.remove_case_item("case-missing", item_value="hit-001")
+
+    @patch("howler.services.case_service.Case")
+    def test_raises_not_found_when_item_missing(self, mock_case_cls):
+        """remove_case_item raises NotFoundException when the item does not exist in the case."""
+        _case = Case({"case_id": "case-001", "title": "T", "summary": "S", "overview": "O", "escalation": "low"})
+        mock_case_cls.store.get_if_exists.return_value = _case
+
+        with pytest.raises(NotFoundException):
+            case_service.remove_case_item("case-001", item_value="nonexistent")
+
+    @patch("howler.services.case_service.datastore")
+    @patch("howler.services.case_service.Case")
+    def test_raises_datastore_exception_when_save_fails(self, mock_case_cls, mock_ds_fn):
+        """remove_case_item raises DataStoreException when case.save() returns False."""
+        from howler.datastore.exceptions import DataStoreException
+
+        mock_ds = MagicMock()
+        mock_ds_fn.return_value = mock_ds
+
+        _case, _ = self._make_case_with_item()
+        _case.save = MagicMock(return_value=False)
+        mock_case_cls.store.get_if_exists.return_value = _case
+        mock_ds.__getitem__.return_value.get_if_exists.return_value = MagicMock()
+
+        with pytest.raises(DataStoreException):
+            case_service.remove_case_item("case-001", item_value="hit-001")
+
+    @patch("howler.services.case_service.remove_backreference")
+    @patch("howler.services.case_service.datastore")
+    @patch("howler.services.case_service.Case")
+    def test_skips_backreference_when_backing_obj_not_found(self, mock_case_cls, mock_ds_fn, mock_remove_backref):
+        """remove_case_item skips remove_backreference when backing object no longer exists."""
+        mock_ds = MagicMock()
+        mock_ds_fn.return_value = mock_ds
+
+        _case, _ = self._make_case_with_item()
+        mock_case_cls.store.get_if_exists.return_value = _case
+        mock_ds.__getitem__.return_value.get_if_exists.return_value = None
+
+        case_service.remove_case_item("case-001", item_value="hit-001")
+
+        mock_remove_backref.assert_not_called()
+        _case.save.assert_called_once()

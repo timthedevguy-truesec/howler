@@ -230,7 +230,8 @@ def append_item(id: str, user: User, **kwargs):  # noqa: C901
     {
         "type": "hit",            # Type of item to append: "hit", "observable", "case", "table", "lead", or "reference"
         "value": "item-id-123"    # The ID or reference value for the item
-        "path": "test_path/item_name etc"  # Optional path to specify where in the case hierarchy this item belongs (e.g., "timeline/event1")
+        "path": "test_path/item_name etc"  # Optional path to specify where in the case hierarchy this item belongs
+        (e.g., "timeline/event1")
     }
 
     Result Example:
@@ -289,6 +290,8 @@ def delete_item(id: str, value: str, **kwargs):
     """
     try:
         case_service.remove_case_item(id, item_value=value)
+    except NotFoundException as e:
+        return not_found(err=str(e))
     except DataStoreException as e:
         logger.exception("Save Error")
         return internal_error(err=str(e))
