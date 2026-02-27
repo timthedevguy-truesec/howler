@@ -334,7 +334,8 @@ def append_hit(case_id: str, item: CaseItem):
 
     case.items.append(item)
 
-    if not datastore().case.save(case.case_id, case):
+    # if not datastore().case.save(case.case_id, case):
+    if not case.save():
         raise DataStoreException(f"Failed to save {case.case_id} with new item {item.value}")
 
     add_backreference(hit, case.case_id)
