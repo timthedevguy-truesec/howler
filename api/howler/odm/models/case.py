@@ -94,7 +94,7 @@ class CaseEnrichment(odm.Model):
 
 
 @odm.model(index=True, store=True, description="Case model with path-based items, enrichments, rules, and tasks.")
-class Case(DatastoreMixin, odm.Model):
+class Case(DatastoreMixin["Case"], odm.Model):
     case_id: str = odm.UUID(description="A unique identifier for this case.")
     title: str = odm.Keyword(description="Case title.")
     summary: str = odm.Text(description="Short case summary.")

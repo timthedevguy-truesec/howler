@@ -268,7 +268,7 @@ def append_case_item(  # noqa: C901
     """
     if item is None:
         if not all([item_type, item_value]):
-            raise InvalidDataException("item_type, item_value, and item_path are required if item is not provided")
+            raise InvalidDataException("item_type and item_value are required if item is not provided")
 
         if item_type not in CaseItemTypes:
             raise InvalidDataException(f"Invalid item type: {item_type}, valid types are: {', '.join(CaseItemTypes)}")
@@ -278,7 +278,7 @@ def append_case_item(  # noqa: C901
 
         item = CaseItem({"type": item_type, "value": item_value, "path": item_path})
 
-    match item_type:
+    match item.type:
         case CaseItemTypes.HIT:
             append_hit(case_id, item)
         case CaseItemTypes.OBSERVABLE:
@@ -312,9 +312,8 @@ def append_hit(case_id: str, item: CaseItem):
         InvalidDataException: If the hit is already present in the case.
         DataStoreException: If saving the updated case fails.
     """
-    ds = datastore()
-
-    case: Case = ds.case.get_if_exists(key=case_id, as_obj=True)
+    # case: Case = ds.case.get_if_exists(key=case_id, as_obj=True)
+    case: Case = Case.objects.get_if_exists(key=case_id, as_obj=True)
 
     if case is None:
         raise NotFoundException(f"Case {case_id} does not exist")
@@ -322,7 +321,7 @@ def append_hit(case_id: str, item: CaseItem):
     if any(item.value == case_item["value"] for case_item in case.items):
         raise InvalidDataException(f"Hit {item.value} already exists in case {case_id}")
 
-    hit: Hit = ds.hit.get_if_exists(key=item.value, as_obj=True)
+    hit: Hit = Hit.objects.get_if_exists(key=item.value, as_obj=True)
 
     if hit is None:
         raise NotFoundException(f"Hit {item.value} not found, cannot be added to case")
@@ -334,7 +333,6 @@ def append_hit(case_id: str, item: CaseItem):
 
     case.items.append(item)
 
-    # if not datastore().case.save(case.case_id, case):
     if not case.save():
         raise DataStoreException(f"Failed to save {case.case_id} with new item {item.value}")
 
@@ -358,9 +356,7 @@ def append_observable(case_id: str, item: CaseItem):
         InvalidDataException: If the observable is already present in the case.
         DataStoreException: If saving the updated case fails.
     """
-    ds = datastore()
-
-    case: Case = ds.case.get_if_exists(key=case_id, as_obj=True)
+    case: Case = Case.objects.get_if_exists(key=case_id, as_obj=True)
 
     if case is None:
         raise NotFoundException(f"Case {case_id} does not exist")
@@ -368,7 +364,7 @@ def append_observable(case_id: str, item: CaseItem):
     if any(item.value == case_item["value"] for case_item in case.items):
         raise InvalidDataException(f"Observable {item.value} already exists in case {case_id}")
 
-    observable: Observable = ds.observable.get_if_exists(key=item.value, as_obj=True)
+    observable: Observable = Observable.objects.get_if_exists(key=item.value, as_obj=True)
 
     if observable is None:
         raise NotFoundException(f"Observable {item.value} not found, cannot be added to case")
@@ -380,7 +376,7 @@ def append_observable(case_id: str, item: CaseItem):
 
     case.items.append(item)
 
-    if not datastore().case.save(case.case_id, case):
+    if not case.save():
         raise DataStoreException(f"Failed to save {case.case_id} with new item {item.value}")
 
     add_backreference(observable, case.case_id)
@@ -403,9 +399,7 @@ def append_case(case_id: str, item: CaseItem):
         InvalidDataException: If the referenced case is already present in the parent case.
         DataStoreException: If saving the updated case fails.
     """
-    ds = datastore()
-
-    case: Case = ds.case.get_if_exists(key=case_id, as_obj=True)
+    case: Case = Case.objects.get_if_exists(key=case_id, as_obj=True)
 
     if case is None:
         raise NotFoundException(f"Case {case_id} does not exist")
@@ -413,7 +407,7 @@ def append_case(case_id: str, item: CaseItem):
     if any(item.value == case_item["value"] for case_item in case.items):
         raise InvalidDataException(f"Observable {item.value} already exists in case {case_id}")
 
-    referenced_case: Case = ds.case.get_if_exists(key=item.value, as_obj=True)
+    referenced_case: Case = Case.objects.get_if_exists(key=item.value, as_obj=True)
 
     if referenced_case is None:
         raise NotFoundException(f"Referenced case {item.value} not found, cannot be added to case")
@@ -427,7 +421,7 @@ def append_case(case_id: str, item: CaseItem):
 
     case.items.append(item)
 
-    if not datastore().case.save(case.case_id, case):
+    if not case.save():
         raise DataStoreException(f"Failed to save {case.case_id} with new item {item.value}")
 
 

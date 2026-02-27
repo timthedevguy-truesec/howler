@@ -4,6 +4,7 @@ from howler import odm
 from howler.common.exceptions import HowlerValueError
 from howler.common.logging import get_logger
 from howler.odm.howler_enum import HowlerEnum
+from howler.odm.mixins import DatastoreMixin
 from howler.odm.models.record import Record
 
 logger = get_logger(__file__)
@@ -112,7 +113,7 @@ class ObservableData(odm.Model):
     store=True,
     description="Observable schema which is an extended version of Elastic Common Schema (ECS)",
 )
-class Observable(Record):
+class Observable(DatastoreMixin["Observable"], Record):
     # Howler extended fields. Deviates from ECS
     howler: ObservableData = odm.Compound(
         ObservableData,
