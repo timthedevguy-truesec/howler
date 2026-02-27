@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import StrEnum
 from typing import Optional
 
@@ -5,6 +6,8 @@ from howler import odm
 from howler.common.exceptions import HowlerValueError
 from howler.odm.constants import Status
 from howler.odm.mixins import DatastoreMixin
+from howler.odm.models.record import Record
+from howler.utils import isotime
 
 CASE_ITEM_TYPES = {"observable", "hit", "case", "lead", "reference"}
 
@@ -179,6 +182,52 @@ class Case(DatastoreMixin["Case"], odm.Model):
         )
     )
 
-    def update_duration(self):
-        if len(self.items) == 0:
-            pass
+    def update_duration(self, save_changes: bool = False):
+        """Recalculate the case's ``start`` and ``end`` timestamps from its items.
+
+        Iterates over all ``observable`` and ``hit`` items in the case, fetches
+        each item's backing object from the datastore, and derives the earliest
+        and latest timestamps to set ``start`` and ``end`` respectively.  If
+        either boundary remains ``None`` after processing (e.g. no items exist),
+        it is set to the current time via :func:`howler.utils.isotime.now`.
+
+        The case is only persisted when *both* ``is_dirty`` is ``True`` and
+        ``save_changes`` is ``True``.
+
+        Args:
+            save_changes: If ``True``, calls :meth:`save` after updating
+                ``start`` and ``end`` when changes were detected. Defaults to
+                ``False``.
+        """
+        start_date: datetime | None = self.start
+        end_date: datetime | None = self.end
+        is_dirty: bool = False
+
+        for case_item in [item for item in self.items if item.type in ["observable", "hit"]]:
+            backing_obj: Record | None = self.ds[self.__class__.__name__.lower()].get_if_exists(
+                case_item.id, as_obj=True
+            )
+
+            event_datetime = isotime.from_iso(backing_obj.timestamp)
+
+            if start_date is None or event_datetime < event_datetime:
+                start_date = event_datetime
+                is_dirty = True
+
+            if end_date is None or event_datetime > end_date:
+                end_date = event_datetime
+                is_dirty = True
+
+        if start_date is None:
+            start_date = isotime.now()
+            is_dirty = True
+
+        if end_date is None:
+            end_date = isotime.now()
+            is_dirty = True
+
+        self.start = isotime.to_iso(start_date)
+        self.end = isotime.to_iso(end_date)
+
+        if is_dirty and save_changes:
+            self.save()
