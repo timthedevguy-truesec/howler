@@ -44,7 +44,7 @@ def create_correlated_bundle(rule: Analytic, query: str, correlated_hits: list[H
     # If a matching bundle exists already, just reused it (likely only ever lucene specific)
     existing_result = datastore().hit.search(f"howler.hash:{hashed}", rows=1)
     if existing_result["total"] > 0:
-        logger.debug(f"Rule hash {hashed} exists - skipping create")
+        logger.debug("Rule hash %s exists - skipping create", hashed)
         return existing_result["items"][0]
 
     child_ids = [match.howler.id for match in correlated_hits]
@@ -220,12 +220,12 @@ def register_rules(new_rule: Optional[Analytic] = None, test_override: bool = Fa
 
     if new_rule:
         if __scheduler_instance.get_job(f"rule_{new_rule.analytic_id}"):
-            logger.info(f"Updating existing rule: {new_rule.analytic_id} on interval {new_rule.rule_crontab}")
+            logger.info("Updating existing rule: %s on interval %s", new_rule.analytic_id, new_rule.rule_crontab)
 
             # remove the existing job
             __scheduler_instance.remove_job(f"rule_{new_rule.analytic_id}")
         else:
-            logger.info(f"Registering new rule: {new_rule.analytic_id} on interval {new_rule.rule_crontab}")
+            logger.info("Registering new rule: %s on interval %s", new_rule.analytic_id, new_rule.rule_crontab)
         rules = [new_rule]
     else:
         logger.debug("Registering rules")
@@ -237,10 +237,10 @@ def register_rules(new_rule: Optional[Analytic] = None, test_override: bool = Fa
         interval = rule.rule_crontab or f"{random.randint(0, 59)} * * * *"  # noqa: S311
 
         if __scheduler_instance.get_job(job_id):
-            logger.debug(f"Rule {job_id} already running!")
+            logger.debug("Rule %s already running!", job_id)
             return
 
-        logger.debug(f"Initializing rule cronjob with:\tJob ID: {job_id}\tRule Name: {rule.name}\tCrontab: {interval}")
+        logger.debug("Initializing rule cronjob with:\tJob ID: %s\tRule Name: %s\tCrontab: %s", job_id, rule.name, interval)
 
         if DEBUG or new_rule:
             _kwargs: dict[str, Any] = {"next_run_time": datetime.now()}
@@ -255,7 +255,7 @@ def register_rules(new_rule: Optional[Analytic] = None, test_override: bool = Fa
             **_kwargs,
         )
 
-    logger.info(f"Initialized {total_initialized} rules")
+    logger.info("Initialized %s rules", total_initialized)
 
 
 def setup_job(sched: BaseScheduler):
