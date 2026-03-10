@@ -149,7 +149,7 @@ def generate_structure():  # noqa: C901
         validation_list = validation_req.json()["api_response"]["items"]
 
         if len(validation_list) == 0:
-            log.critical(f"No validation object found for index {index}, aborting")
+            log.critical("No validation object found for index %s, aborting", index)
             sys.exit(1)
 
         validation_obj = next(
@@ -192,7 +192,7 @@ def generate_structure():  # noqa: C901
                 if current.get(current_field, None) is None:
                     # If we haven't initialized this node yet, we'll do so now
                     current[current_field] = dict()
-                    log.debug(f"{indent}{current_field}:")
+                    log.debug("%s%s:", indent, current_field)
 
                 # Descend down the tree we're creating, and the validation object.
                 current = current[current_field]
@@ -285,7 +285,7 @@ def generate_structure():  # noqa: C901
                 "__ts_field_type": ts_field_type,
                 "__required": key in REQUIRED_FIELDS,
             }
-            log.debug(f"{indent}{current_field}: ts:{ts_field_type}")
+            log.debug("%s%s: ts:%s", indent, current_field, ts_field_type)
 
     return structure
 
